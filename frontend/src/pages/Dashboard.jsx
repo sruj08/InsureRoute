@@ -6,7 +6,7 @@ import GraphView     from '../components/GraphView'
 import InsurancePanel from '../components/InsurancePanel'
 import LogsPanel     from '../components/LogsPanel'
 import { fetchData, injectDisruption, MOCK_NODES, MOCK_EDGES } from '../services/api'
-import { AreaChart, Area, Tooltip, ResponsiveContainer, XAxis } from 'recharts'
+import { AreaChart, Area, Tooltip, ResponsiveContainer, XAxis, YAxis } from 'recharts'
 
 // ── Log helpers ──────────────────────────────────────────────────────────────
 let logId = 0
@@ -44,7 +44,9 @@ export default function Dashboard() {
     destination: 'Mumbai_Hub',
     cargoValue:  70000,
     monsoon:     true,
+    weatherType: 'Monsoon Status',
     perishable:  true,
+    cargoType:   'Perishable Goods',
     threshold:   -0.15,
     weatherMult: 1.4,
     perishMult:  1.6,
@@ -123,7 +125,7 @@ export default function Dashboard() {
         loading={loading}
       />
 
-      <main className="flex-1 px-4 md:px-6 py-5 space-y-5 max-w-[1600px] mx-auto w-full">
+      <main className="flex-1 px-4 md:px-6 py-3 space-y-3 max-w-[1600px] mx-auto w-full">
 
         {/* ── Disruption alert ── */}
         <AnimatePresence>
@@ -153,9 +155,13 @@ export default function Dashboard() {
         <KPICards kpis={kpis} />
 
         {/* ── Main grid: Graph + Insurance ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-5">
-          <GraphView nodes={nodes} edges={edges} route={route} />
-          <InsurancePanel insurance={ins} disrupted={disrupted} />
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-5 items-stretch h-[480px] max-h-[480px] overflow-hidden">
+          <div className="flex flex-col rounded-xl overflow-hidden h-full min-h-0">
+            <GraphView nodes={nodes} edges={edges} route={route} params={params} setParams={setParams} />
+          </div>
+          <div className="flex flex-col h-full min-h-0">
+            <InsurancePanel insurance={ins} disrupted={disrupted} />
+          </div>
         </div>
 
         {/* ── Bottom row: Trend + Logs ── */}
@@ -169,16 +175,17 @@ export default function Dashboard() {
               </span>
             </div>
             {trend.length > 2 ? (
-              <div className="flex-1 min-h-[160px]">
+              <div className="w-full h-[180px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={trend} margin={{ top: 5, right: 0, bottom: 0, left: 0 }}>
                     <defs>
                       <linearGradient id="riskGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%"   stopColor={disrupted ? '#ef4444' : '#eab308'} stopOpacity={0.2} />
-                        <stop offset="100%" stopColor={disrupted ? '#ef4444' : '#eab308'} stopOpacity={0} />
+                        <stop offset="0%"   stopColor={disrupted ? '#dc2626' : '#2563eb'} stopOpacity={0.4} />
+                        <stop offset="100%" stopColor={disrupted ? '#dc2626' : '#2563eb'} stopOpacity={0.05} />
                       </linearGradient>
                     </defs>
                     <XAxis dataKey="t" hide />
+                    <YAxis hide domain={[0, 100]} />
                     <Tooltip
                       contentStyle={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 12, boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}
                       labelStyle={{ color: '#64748b' }}
@@ -186,7 +193,7 @@ export default function Dashboard() {
                     />
                     <Area
                       type="monotone" dataKey="risk"
-                      stroke={disrupted ? '#ef4444' : '#eab308'}
+                      stroke={disrupted ? '#dc2626' : '#2563eb'}
                       strokeWidth={2}
                       fill="url(#riskGrad)"
                       dot={false}

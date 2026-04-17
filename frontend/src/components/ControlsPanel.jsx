@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion'
 import { useState } from 'react'
-import { Zap, Settings, RefreshCw, ToggleLeft, ToggleRight } from 'lucide-react'
+import { Zap, Settings, RefreshCw } from 'lucide-react'
 
 export default function ControlsPanel({ params, onParamsChange, onInject, onRefresh, loading }) {
   const [expanded, setExpanded] = useState(false)
@@ -44,7 +44,7 @@ export default function ControlsPanel({ params, onParamsChange, onInject, onRefr
           className="relative overflow-hidden flex items-center justify-center gap-2
                      bg-gradient-to-r from-red-700 to-danger text-white
                      rounded-xl py-3 px-4 font-bold text-sm
-                     shadow-lg shadow-danger/30 hover:shadow-danger/50
+                     shadow-lg hover:shadow-xl
                      disabled:opacity-50 disabled:cursor-not-allowed
                      transition-shadow duration-300"
         >
@@ -84,19 +84,38 @@ export default function ControlsPanel({ params, onParamsChange, onInject, onRefr
         </motion.button>
       </div>
 
-      {/* Toggle flags */}
-      <div className="grid grid-cols-2 gap-3">
-        <ToggleFlag
-          label="Monsoon"
-          value={params.monsoon}
-          onChange={() => toggle('monsoon')}
-          activeColor="text-blue-400"
+      {/* Configuration Dropdowns */}
+      <div className="grid grid-cols-2 gap-3 z-20">
+        <DropdownSelect
+          label="Weather"
+          selected={params.weatherType || 'Monsoon Status'}
+          gradient="from-blue-500/10 to-transparent border-blue-200"
+          activeColor="text-blue-600"
+          options={[
+            { label: 'Clear / Sunny',  monsoon: false, mult: 1.0 },
+            { label: 'Monsoon Status', monsoon: true,  mult: 1.4 },
+            { label: 'Heavy Storm',    monsoon: true,  mult: 1.8 },
+            { label: 'Cyclone Warning',monsoon: true,  mult: 2.2 },
+            { label: 'Flash Floods',   monsoon: true,  mult: 2.5 },
+            { label: 'Extreme Heat',   monsoon: false, mult: 1.2 },
+          ]}
+          onChange={(opt) => onParamsChange({ ...params, monsoon: opt.monsoon, weatherMult: opt.mult, weatherType: opt.label })}
         />
-        <ToggleFlag
-          label="Perishable"
-          value={params.perishable}
-          onChange={() => toggle('perishable')}
-          activeColor="text-cyan-400"
+
+        <DropdownSelect
+          label="Cargo Type"
+          selected={params.cargoType || 'Perishable Goods'}
+          gradient="from-green-500/10 to-transparent border-green-200"
+          activeColor="text-green-700"
+          options={[
+            { label: 'Standard Cargo',   perishable: false, mult: 1.0 },
+            { label: 'Perishable Goods', perishable: true,  mult: 1.6 },
+            { label: 'Fragile Items',    perishable: false, mult: 1.5 },
+            { label: 'Hazardous (Gases)',perishable: false, mult: 2.1 },
+            { label: 'Medical Supplies', perishable: true,  mult: 2.0 },
+            { label: 'Live Animals',     perishable: true,  mult: 2.3 },
+          ]}
+          onChange={(opt) => onParamsChange({ ...params, perishable: opt.perishable, perishMult: opt.mult, cargoType: opt.label })}
         />
       </div>
 
@@ -143,22 +162,47 @@ export default function ControlsPanel({ params, onParamsChange, onInject, onRefr
   )
 }
 
-function ToggleFlag({ label, value, onChange, activeColor }) {
+function DropdownSelect({ label, selected, options, onChange, activeColor, gradient }) {
+  const [open, setOpen] = useState(false)
+  
   return (
-    <button
-      onClick={onChange}
-      className={`flex items-center justify-between px-3 py-2.5 rounded-xl border
-                  transition-all duration-200 text-sm font-medium
-                  ${value
-                    ? 'border-primary/40 bg-primary/10 ' + activeColor
-                    : 'border-border/50 bg-surface/50 text-muted hover:border-primary/20'}`}
-    >
-      <span>{label}</span>
-      {value
-        ? <ToggleRight size={18} className="text-primary" />
-        : <ToggleLeft  size={18} className="text-muted" />
-      }
-    </button>
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border
+                    transition-all duration-200 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20
+                    ${selected !== 'Standard Cargo' && selected !== 'Clear / Sunny'
+                      ? 'border-primary/40 bg-primary/10 ' + activeColor 
+                      : 'border-border/50 bg-surface/50 text-muted hover:border-primary/20'}`}
+      >
+        <span className="font-semibold tracking-wide">{selected || label}</span>
+        <svg style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)' }} className="transition-transform duration-200 ml-2" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <motion.div
+            initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }}
+            className="absolute top-[calc(100%+6px)] left-0 right-0 bg-white border border-border shadow-2xl rounded-xl z-50 overflow-hidden py-1.5"
+          >
+            {options.map(opt => (
+              <button
+                key={opt.label}
+                onClick={() => { onChange(opt); setOpen(false) }}
+                className={`w-full text-left px-3 py-2 text-sm transition-colors hover:bg-slate-50 flex flex-col items-start justify-center
+                  ${selected === opt.label ? 'bg-primary/5 border-l-2 border-primary' : 'border-l-2 border-transparent'}
+                `}
+              >
+                <span className={`font-semibold ${selected === opt.label ? 'text-slate-900' : 'text-slate-600'}`}>{opt.label}</span>
+              </button>
+            ))}
+          </motion.div>
+        </>
+      )}
+    </div>
   )
 }
 

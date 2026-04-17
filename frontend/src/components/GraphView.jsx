@@ -1,10 +1,10 @@
 import { motion } from 'framer-motion'
 import { useMemo } from 'react'
-import { ComposableMap, Geographies, Geography, Marker, Line as RSMLine } from 'react-simple-maps'
+import { ComposableMap, Geographies, Geography, Marker, Line as RSMLine, ZoomableGroup } from 'react-simple-maps'
 
-const INDIA_TOPOJSON = "https://raw.githubusercontent.com/deldersveld/topojson/master/countries/india/india-states.json"
+const WORLD_TOPOJSON = "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json"
 
-export default function GraphView({ nodes = [], edges = [], route = null }) {
+export default function GraphView({ nodes = [], edges = [], route = null, params, setParams }) {
 
   const pathSet = useMemo(() => {
     if (!route?.path) return new Set()
@@ -41,7 +41,7 @@ export default function GraphView({ nodes = [], edges = [], route = null }) {
   }, [nodes])
 
   return (
-    <div className="glass p-5 flex flex-col gap-4 h-full">
+    <div className="glass p-4 flex flex-col gap-3 h-full">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex flex-col">
@@ -57,81 +57,83 @@ export default function GraphView({ nodes = [], edges = [], route = null }) {
       </div>
 
       {/* Map Area */}
-      <div className="relative flex-1 w-full rounded-lg bg-slate-50 border border-slate-200 overflow-hidden" style={{ minHeight: '380px' }}>
+      <div className="relative flex-1 w-full rounded-lg bg-[#f0f9ff]/30 border border-slate-200 overflow-hidden">
         
         <ComposableMap
           projection="geoMercator"
-          projectionConfig={{ scale: 1200, center: [80, 22] }}
+          projectionConfig={{ scale: 1100, center: [80, 22] }}
           style={{ width: "100%", height: "100%" }}
         >
-          {/* Base Map */}
-          <Geographies geography={INDIA_TOPOJSON}>
-            {({ geographies }) =>
-              geographies.map(geo => (
-                <Geography
-                  key={geo.rsmKey}
-                  geography={geo}
-                  fill="#ffffff"
-                  stroke="#e2e8f0"
-                  strokeWidth={1}
-                  style={{
-                    default: { outline: "none" },
-                    hover: { fill: "#f8fafc", outline: "none" },
-                    pressed: { outline: "none" },
-                  }}
-                />
-              ))
-            }
-          </Geographies>
-
-          {/* Edges */}
-          {edges.map((e, i) => {
-            const s = nodesMap[e.source]
-            const t = nodesMap[e.target]
-            if (!s || !t) return null
-            const isActive = pathSet.has(`${e.source}|${e.target}`)
-            return (
-              <RSMLine
-                key={i}
-                from={[s.lon, s.lat]}
-                to={[t.lon, t.lat]}
-                stroke={edgeColor(e.source, e.target)}
-                strokeWidth={edgeWidth(e.source, e.target)}
-                strokeLinecap="round"
-                className={isActive ? (disrupted ? "drop-shadow-sm" : "") : "opacity-60"}
-              />
-            )
-          })}
-
-          {/* Nodes */}
-          {nodes.map((n) => {
-            const isKey = routeNodeSet.has(n.id)
-            return (
-              <Marker key={n.id} coordinates={[n.lon, n.lat]}>
-                <circle
-                  r={isKey ? 6 : 3.5}
-                  fill={nodeColor(n.id)}
-                  stroke="#ffffff"
-                  strokeWidth={1.5}
-                />
-                {isKey && (
-                  <text
-                    textAnchor="middle"
-                    y={-12}
+          <ZoomableGroup zoom={1} minZoom={0.5} maxZoom={4}>
+            {/* Base Map */}
+            <Geographies geography={WORLD_TOPOJSON}>
+              {({ geographies }) =>
+                geographies.map(geo => (
+                  <Geography
+                    key={geo.rsmKey}
+                    geography={geo}
+                    fill="#e2e8f0"
+                    stroke="#cbd5e1"
+                    strokeWidth={1}
                     style={{
-                      fontFamily: "Inter, sans-serif",
-                      fill: "#334155",
-                      fontSize: "10px",
-                      fontWeight: 700,
-                      textShadow: "1px 1px 0px #fff, -1px -1px 0px #fff, 1px -1px 0px #fff, -1px 1px 0px #fff"
+                      default: { outline: "none" },
+                      hover:   { fill: "#e2e8f0", outline: "none", cursor: "default" },
+                      pressed: { outline: "none" },
                     }}
-                  >
-                    {n.label.replace(' Hub', '').replace(' DC', '')}
-                  </text>
-                )}
-              </Marker>
-            )
-          })}
+                  />
+                ))
+              }
+            </Geographies>
+
+            {/* Edges */}
+            {edges.map((e, i) => {
+              const s = nodesMap[e.source]
+              const t = nodesMap[e.target]
+              if (!s || !t) return null
+              const isActive = pathSet.has(`${e.source}|${e.target}`)
+              return (
+                <RSMLine
+                  key={i}
+                  from={[s.lon, s.lat]}
+                  to={[t.lon, t.lat]}
+                  stroke={edgeColor(e.source, e.target)}
+                  strokeWidth={edgeWidth(e.source, e.target)}
+                  strokeLinecap="round"
+                  className={isActive ? (disrupted ? "drop-shadow-sm" : "") : "opacity-60"}
+                />
+              )
+            })}
+
+            {/* Nodes */}
+            {nodes.map((n) => {
+              const isKey = routeNodeSet.has(n.id)
+              return (
+                <Marker key={n.id} coordinates={[n.lon, n.lat]}>
+                  <circle
+                    r={isKey ? 6 : 3.5}
+                    fill={nodeColor(n.id)}
+                    stroke="#ffffff"
+                    strokeWidth={1.5}
+                  />
+                  {isKey && (
+                    <text
+                      textAnchor="middle"
+                      y={-12}
+                      style={{
+                        fontFamily: "Inter, sans-serif",
+                        fill: "#334155",
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        textShadow: "1px 1px 0px #fff, -1px -1px 0px #fff, 1px -1px 0px #fff, -1px 1px 0px #fff"
+                      }}
+                    >
+                      {n.label.replace(' Hub', '').replace(' DC', '')}
+                    </text>
+                  )}
+                </Marker>
+              )
+            })}
+          </ZoomableGroup>
         </ComposableMap>
 
         {/* Route info overlay */}
@@ -139,11 +141,39 @@ export default function GraphView({ nodes = [], edges = [], route = null }) {
           <motion.div
             initial={{ opacity: 0, x: -10 }}
             animate={{ opacity: 1, x: 0 }}
-            className="absolute bottom-3 left-3 bg-white border border-slate-200 shadow-sm rounded-lg px-4 py-3 text-xs space-y-1"
+            className="absolute bottom-3 left-3 bg-white/95 backdrop-blur-sm border border-slate-200 shadow-lg rounded-xl p-4 text-xs space-y-3 w-72"
           >
-            <div className="text-muted font-bold tracking-wider uppercase text-[10px]">Active Route Detail</div>
-            <div className="text-text font-bold text-sm">
-              {route.origin?.replace('_', ' ')} → {route.destination?.replace('_', ' ')}
+            {/* Selectors inside overlay */}
+            {params && setParams && (
+              <div className="flex flex-col gap-2">
+                <div className="text-muted font-bold tracking-wider uppercase text-[10px]">Select Route</div>
+                <div className="flex flex-col gap-0.5">
+                  <select 
+                    className="w-full bg-slate-50 border border-slate-200 text-xs rounded px-2 py-1.5 font-semibold text-slate-700 outline-none focus:border-primary"
+                    value={params.origin}
+                    onChange={e => setParams({...params, origin: e.target.value})}
+                  >
+                    {nodes.map(n => <option key={n.id} value={n.id}>{n.label.replace(' Hub', '').replace(' DC', '')}</option>)}
+                  </select>
+                  <div className="text-center text-slate-400 text-[10px] my-0 leading-none py-1">↓</div>
+                  <select 
+                    className="w-full bg-slate-50 border border-slate-200 text-xs rounded px-2 py-1.5 font-semibold text-slate-700 outline-none focus:border-primary"
+                    value={params.destination}
+                    onChange={e => setParams({...params, destination: e.target.value})}
+                  >
+                    {nodes.map(n => <option key={n.id} value={n.id}>{n.label.replace(' Hub', '').replace(' DC', '')}</option>)}
+                  </select>
+                </div>
+              </div>
+            )}
+            
+            <div className="w-full h-px bg-slate-100" />
+            
+            <div className="flex flex-col gap-1">
+              <div className="text-muted font-bold tracking-wider uppercase text-[10px]">Active Route Detail</div>
+              <div className="text-text font-bold text-[13px]">
+                {route.origin?.replace('_', ' ')} → {route.destination?.replace('_', ' ')}
+              </div>
             </div>
             <div className="flex gap-4 text-slate-600 font-medium pt-1">
               <span>Time: {route.total_time_hrs} hrs</span>
