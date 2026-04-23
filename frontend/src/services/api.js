@@ -220,6 +220,92 @@ export async function fetchNews(params = {}) {
   }
 }
 
+function makeMockRouteIntelligence(params = {}) {
+  const origin = params.origin || 'Pune_Hub'
+  const destination = params.destination || 'Mumbai_Hub'
+  const originLabel = origin.replace(/_Hub|_DC/g, '').replace(/_/g, ' ')
+  const destLabel = destination.replace(/_Hub|_DC/g, '').replace(/_/g, ' ')
+  const now = new Date()
+
+  return {
+    route: {
+      origin,
+      destination,
+      path_nodes: [origin, destination],
+      coordinates: [],
+      waypoints: [],
+      bounding_box: {},
+      distance_km: 150,
+      travel_time_hrs: 2.5,
+    },
+    risks: [
+      {
+        source: 'traffic',
+        type: 'traffic',
+        location: destLabel,
+        severity: 0.62,
+        reason: `Congestion surge detected near ${destLabel}`,
+      },
+    ],
+    weather: [
+      {
+        type: 'weather',
+        location: originLabel,
+        severity: 0.41,
+        reason: `Intermittent rain expected around ${originLabel} corridor`,
+      },
+    ],
+    traffic: [
+      {
+        type: 'traffic',
+        location: destLabel,
+        severity: 0.62,
+        reason: `Road capacity drop near ${destLabel} arterial segment`,
+      },
+    ],
+    news: [
+      {
+        title: `Highway accident reported on ${originLabel} → ${destLabel} corridor`,
+        source: 'Demo Logistics Wire',
+        published_at: new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString(),
+        url: 'https://example.com/demo-accident',
+        relevance_score: 0.84,
+        location_tag: `Near ${destLabel}`,
+      },
+      {
+        title: `Weather alert: heavy showers likely along outbound ${originLabel} stretch`,
+        source: 'Demo Weather Desk',
+        published_at: new Date(now.getTime() - 5 * 60 * 60 * 1000).toISOString(),
+        url: 'https://example.com/demo-weather',
+        relevance_score: 0.73,
+        location_tag: `Near ${originLabel}`,
+      },
+    ],
+    risk_score: 67.5,
+    intelligence_highlight: `Delay expected due to highway accident near ${destLabel}`,
+    news_status: {
+      mode: 'fallback_demo',
+      message: 'Live news unavailable (API key missing)',
+    },
+    generated_at: now.toISOString(),
+  }
+}
+
+export async function fetchRouteIntelligence(params = {}) {
+  try {
+    const res = await client.get('/route-intelligence', {
+      params: {
+        origin: params.origin || 'Pune_Hub',
+        destination: params.destination || 'Mumbai_Hub',
+      },
+      timeout: 20000,
+    })
+    return { data: res.data, mock: false }
+  } catch {
+    return { data: makeMockRouteIntelligence(params), mock: true }
+  }
+}
+
 export async function fetchRiskAnalysis(params = {}, routePath = []) {
   try {
     const searchParams = new URLSearchParams({

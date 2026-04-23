@@ -15,9 +15,11 @@ import logging
 logger = logging.getLogger("insure_route.news")
 
 try:
-    from dotenv import load_dotenv
-    _env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
-    load_dotenv(_env_path, override=True)
+    try:
+        from env_loader import load_insure_route_env
+    except ImportError:
+        from backend.env_loader import load_insure_route_env
+    load_insure_route_env()
 except ImportError:
     pass
 

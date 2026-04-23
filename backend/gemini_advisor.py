@@ -20,14 +20,13 @@ import logging
 
 logger = logging.getLogger("insure_route.gemini")
 
-# ── Load .env from project root ───────────────────────────────────────────────
+# ── Load .env from repo root and backend/.env ─────────────────────────────────
 try:
-    from dotenv import load_dotenv
-    _env_path = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..", ".env")
-    )
-    _loaded = load_dotenv(_env_path, override=True)
-    print(f"[InsureRoute] .env loaded from {_env_path} (found={_loaded})")
+    try:
+        from env_loader import load_insure_route_env
+    except ImportError:
+        from backend.env_loader import load_insure_route_env
+    load_insure_route_env()
 except ImportError:
     pass
 

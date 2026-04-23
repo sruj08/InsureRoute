@@ -8,6 +8,15 @@ Run:  uvicorn backend.api:app --reload --port 8000
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
 
+try:
+    try:
+        from env_loader import load_insure_route_env
+    except ImportError:
+        from backend.env_loader import load_insure_route_env
+    load_insure_route_env()
+except ImportError:
+    pass
+
 import asyncio
 import logging
 import time
@@ -44,6 +53,18 @@ try:
     ROUTE_RISK_ADVISOR_AVAILABLE = True
 except ImportError:
     ROUTE_RISK_ADVISOR_AVAILABLE = False
+
+try:
+    from route_intelligence_service import get_route_intelligence
+    ROUTE_INTELLIGENCE_AVAILABLE = True
+except ImportError:
+    ROUTE_INTELLIGENCE_AVAILABLE = False
+
+try:
+    from map_directions_service import get_route_geometry, parse_path_query
+    MAP_DIRECTIONS_AVAILABLE = True
+except ImportError:
+    MAP_DIRECTIONS_AVAILABLE = False
 
 logger = logging.getLogger("insure_route.api")
 
@@ -160,6 +181,34 @@ def health():
 @app.get("/hubs")
 def hubs():
     return {"hubs": HUBS}
+
+
+@app.get("/map-directions")
+def map_directions(
+    path: str = Query(
+        "[]",
+        description='JSON array of hub ids in strict order, e.g. ["Delhi_Hub","Jaipur_Hub"]',
+    ),
+):
+    """
+    Road-following route geometry (OpenRouteService) for map polylines.
+    Falls back to ordered hub coordinates when API key is missing or ORS errors.
+    """
+    if not MAP_DIRECTIONS_AVAILABLE:
+        return {
+            "mode": "fallback",
+            "coordinates": [],
+            "message": "⚠ Optimized route unavailable (service module missing)",
+        }
+    ids = parse_path_query(path)
+    if len(ids) < 2:
+        return {
+            "mode": "fallback",
+            "coordinates": [],
+            "message": "⚠ Optimized route unavailable (need at least 2 waypoints)",
+        }
+    positions = get_node_positions()
+    return get_route_geometry(ids, positions)
 
 
 @app.get("/weather-status")
@@ -421,6 +470,40 @@ def route_news(
     }
 
     return get_route_news(context)
+
+
+@app.get("/route-intelligence")
+def route_intelligence(
+    origin: str = Query("Pune_Hub"),
+    destination: str = Query("Mumbai_Hub"),
+):
+    """Return route risk, weather, traffic and route-filtered live news."""
+    if not ROUTE_INTELLIGENCE_AVAILABLE:
+        return {
+            "available": False,
+            "route": {
+                "origin": origin,
+                "destination": destination,
+                "path_nodes": [origin, destination],
+                "coordinates": [],
+                "waypoints": [],
+                "bounding_box": {},
+                "distance_km": 0,
+                "travel_time_hrs": 0,
+            },
+            "risks": [],
+            "weather": [],
+            "traffic": [],
+            "news": [],
+            "risk_score": 0,
+            "intelligence_highlight": "Route intelligence module unavailable.",
+            "news_status": {
+                "mode": "fallback_demo",
+                "message": "Live news unavailable (service module missing)",
+            },
+        }
+
+    return get_route_intelligence(origin=origin, destination=destination)
 
 
 @app.get("/route-risk-analysis")

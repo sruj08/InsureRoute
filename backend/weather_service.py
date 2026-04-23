@@ -19,12 +19,13 @@ except ImportError:
     REQUESTS_AVAILABLE = False
 
 try:
-    from dotenv import load_dotenv
-    # Explicitly load the .env from the project root (one level up from backend/)
-    _env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
-    load_dotenv(_env_path)
+    try:
+        from env_loader import load_insure_route_env
+    except ImportError:
+        from backend.env_loader import load_insure_route_env
+    load_insure_route_env()
 except ImportError:
-    pass  # dotenv optional; key can be set in environment directly
+    pass
 
 logger = logging.getLogger("insure_route.weather")
 

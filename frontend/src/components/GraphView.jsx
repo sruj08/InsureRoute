@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion'
-import { useMemo, useEffect, useRef, useState } from 'react'
-import { AlertTriangle } from 'lucide-react'
+import { useMemo, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { AlertTriangle, Minus, Plus, RotateCcw } from 'lucide-react'
+import { fetchRoadGeometry } from '../services/routeGeometry'
 
 // ── Node coordinates (real Indian hub lat/lon) ────────────────────────────
 const NODE_MAP = {
@@ -24,6 +25,10 @@ const NODE_MAP = {
   Visakhapatnam_Hub: { lon: 83.2185, lat: 17.6868, label: 'Vizag'        },
   Patna_Hub:         { lon: 85.1376, lat: 25.5941, label: 'Patna'        },
   Kochi_Hub:         { lon: 76.2673, lat: 9.9312,  label: 'Kochi'        },
+  Faridabad_DC:      { lon: 77.3132, lat: 28.4089, label: 'Faridabad'    },
+  Udaipur_DC:        { lon: 73.7125, lat: 24.5854, label: 'Udaipur'      },
+  Belgaum_DC:        { lon: 74.5045, lat: 15.8497, label: 'Belgaum'      },
+  Mangalore_DC:      { lon: 74.8560, lat: 12.9141, label: 'Mangalore'    },
 }
 
 // ── Edges — background network display only ──────────────────────────────
@@ -111,6 +116,27 @@ function project(lon, lat, w, h) {
   return { x, y }
 }
 
+function buildVariantExplanation(selected, best) {
+  if (!best || !selected || selected.id === best.id) {
+    return (
+      'Default is the fastest driving option from OpenRouteService for this hub sequence. ' +
+      'Shorter driving time generally means lower fuel and driver hours for long-haul freight.'
+    )
+  }
+  const dMin = (selected.duration_sec - best.duration_sec) / 60
+  const dKm = (selected.distance_m - best.distance_m) / 1000
+  const parts = []
+  if (dMin >= 1) parts.push(`About ${Math.round(dMin)} minutes longer than the best route`)
+  else if (dMin > 0.05) parts.push(`Roughly ${Math.round(dMin * 60)} seconds longer`)
+  if (dKm >= 0.5) parts.push(`Approximately ${dKm.toFixed(1)} km more distance`)
+  if (parts.length === 0)
+    parts.push('Very similar ETA; this path uses different highway links on the same road network')
+  parts.push(
+    'Not chosen as default because InsureRoute prioritizes minimum driving duration for fleet planning on this waypoint order.',
+  )
+  return parts.join('. ') + '.'
+}
+
 function CustomDropdown({ value, options, onChange }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
@@ -182,17 +208,25 @@ export default function GraphView({ nodes = [], edges = [], route = null, params
 
   const { w, h } = dims
 
-  // Build usable node list — prefer API nodes, fall back to NODE_MAP
+  // All hubs on the map: API nodes (full graph) + NODE_MAP labels + any id on active route.path
   const allNodes = useMemo(() => {
-    const apiMap = {}
-    nodes.forEach(n => { apiMap[n.id] = n })
-    return Object.entries(NODE_MAP).map(([id, meta]) => ({
-      id,
-      lon: apiMap[id]?.lon ?? meta.lon,
-      lat: apiMap[id]?.lat ?? meta.lat,
-      label: meta.label,
-    }))
-  }, [nodes])
+    const fromApi = new Map(nodes.map(n => [n.id, n]))
+    const ids = new Set([
+      ...Object.keys(NODE_MAP),
+      ...(route?.path ?? []),
+      ...nodes.map(n => n.id),
+    ])
+    return [...ids].map(id => {
+      const api = fromApi.get(id)
+      const meta = NODE_MAP[id]
+      const lon = Number(api?.lon ?? meta?.lon ?? 77.0)
+      const lat = Number(api?.lat ?? meta?.lat ?? 20.0)
+      const label = (meta?.label ?? api?.label ?? id.replace(/_/g, ' '))
+        .replace(/\s+Hub$/i, '')
+        .replace(/\s+DC$/i, '')
+      return { id, lon, lat, label }
+    })
+  }, [nodes, route?.path])
 
   const nodesById = useMemo(() => {
     const m = {}
@@ -200,18 +234,35 @@ export default function GraphView({ nodes = [], edges = [], route = null, params
     return m
   }, [allNodes])
 
-  const pathSet = useMemo(() => {
-    if (!route?.path) return new Set()
-    const s = new Set()
-    for (let i = 0; i < route.path.length - 1; i++) {
-      s.add(`${route.path[i]}|${route.path[i + 1]}`)
-      s.add(`${route.path[i + 1]}|${route.path[i]}`)
-    }
-    return s
-  }, [route])
-
   const routeNodeSet = useMemo(() => new Set(route?.path ?? []), [route])
   const disrupted = route?.disruption_detected ?? false
+
+  const [routeVariants, setRouteVariants] = useState([])
+  const [selectedVariantId, setSelectedVariantId] = useState('best')
+  const [lineMode, setLineMode] = useState('idle') // 'road' | 'fallback' | 'idle'
+  const [lineMessage, setLineMessage] = useState(null)
+  const routePolyRef = useRef(null)
+  const fetchAbortRef = useRef(null)
+
+  const [zoom, setZoom] = useState(1)
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const [isDragging, setIsDragging] = useState(false)
+  const dragRef = useRef({ active: false, sx: 0, sy: 0, px: 0, py: 0 })
+  const mapLayerRef = useRef(null)
+
+  const bestVariant = useMemo(
+    () => routeVariants.find(v => v.is_best) || routeVariants[0] || null,
+    [routeVariants],
+  )
+  const selectedVariant = useMemo(
+    () => routeVariants.find(v => v.id === selectedVariantId) || bestVariant,
+    [routeVariants, selectedVariantId, bestVariant],
+  )
+
+  const activeCoords = useMemo(() => {
+    const coords = selectedVariant?.coordinates
+    return Array.isArray(coords) ? coords : []
+  }, [selectedVariant])
 
   // Projected positions
   const projected = useMemo(() => {
@@ -225,24 +276,192 @@ export default function GraphView({ nodes = [], edges = [], route = null, params
   // Use all EDGE_PAIRS for background network only
   const allEdges = useMemo(() => EDGE_PAIRS.map(([s, t]) => ({ source: s, target: t })), [])
 
-  // Build route path segments directly from route.path
-  // This bypasses EDGE_PAIRS entirely for the active route, fixing direction mismatches
-  const routeSegments = useMemo(() => {
-    const path = route?.path ?? []
-    const segments = []
-    for (let i = 0; i < path.length - 1; i++) {
-      const s = projected[path[i]]
-      const t = projected[path[i + 1]]
-      if (s && t) segments.push({ from: s, to: t, fromId: path[i], toId: path[i + 1] })
+  // Fetch road geometry (ORS) whenever the ordered path changes; re-project on resize only
+  useEffect(() => {
+    const path = route?.path
+    if (!path || path.length < 2) {
+      setRouteVariants([])
+      setSelectedVariantId('best')
+      setLineMode('idle')
+      setLineMessage(null)
+      return
     }
-    return segments
-  }, [route, projected])
+    fetchAbortRef.current?.abort()
+    const ac = new AbortController()
+    fetchAbortRef.current = ac
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetchRoadGeometry(path, ac.signal)
+        if (cancelled) return
+        const coords = Array.isArray(res.coordinates) ? res.coordinates : []
+        let variants = Array.isArray(res.variants) ? res.variants : []
+        if (coords.length >= 2 && !variants.length) {
+          variants = [
+            {
+              id: 'best',
+              label: 'Hub connector',
+              coordinates: coords,
+              duration_sec: 0,
+              distance_m: 0,
+              is_best: true,
+            },
+          ]
+        }
+        if (variants.length >= 1 && variants[0].coordinates?.length >= 2) {
+          setRouteVariants(variants)
+          setSelectedVariantId('best')
+          setLineMode(res.mode === 'road' ? 'road' : 'fallback')
+          setLineMessage(res.message || null)
+        } else {
+          const ll = path
+            .map(id => {
+              const hit = nodes.find(n => n.id === id)
+              const meta = NODE_MAP[id]
+              const lon = Number(hit?.lon ?? meta?.lon)
+              const lat = Number(hit?.lat ?? meta?.lat)
+              if (Number.isNaN(lon) || Number.isNaN(lat)) return null
+              return [lon, lat]
+            })
+            .filter(Boolean)
+          if (ll.length >= 2) {
+            setRouteVariants([
+              {
+                id: 'best',
+                label: 'Hub connector',
+                coordinates: ll,
+                duration_sec: 0,
+                distance_m: 0,
+                is_best: true,
+              },
+            ])
+            setSelectedVariantId('best')
+            setLineMode('fallback')
+            setLineMessage(res.message || 'WARNING: Optimized route unavailable (API missing)')
+          } else {
+            setRouteVariants([])
+            setLineMode('fallback')
+            setLineMessage('WARNING: Optimized route unavailable')
+          }
+        }
+      } catch (e) {
+        if (e?.code === 'ERR_CANCELED' || e?.name === 'CanceledError' || e?.name === 'AbortError') return
+        if (cancelled) return
+        const ll = path
+          .map(id => {
+            const hit = nodes.find(n => n.id === id)
+            const meta = NODE_MAP[id]
+            const lon = Number(hit?.lon ?? meta?.lon)
+            const lat = Number(hit?.lat ?? meta?.lat)
+            if (Number.isNaN(lon) || Number.isNaN(lat)) return null
+            return [lon, lat]
+          })
+          .filter(Boolean)
+        if (ll.length >= 2) {
+          setRouteVariants([
+            {
+              id: 'best',
+              label: 'Hub connector',
+              coordinates: ll,
+              duration_sec: 0,
+              distance_m: 0,
+              is_best: true,
+            },
+          ])
+          setSelectedVariantId('best')
+          setLineMode('fallback')
+          setLineMessage('WARNING: Optimized route unavailable')
+        } else {
+          setRouteVariants([])
+          setLineMode('fallback')
+          setLineMessage('WARNING: Optimized route unavailable')
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+      ac.abort()
+    }
+  }, [route?.path, nodes])
 
-  function edgeColor(s, t) {
-    if (pathSet.has(`${s}|${t}`)) return disrupted ? '#f87171' : '#fbbf24'
-    return 'rgba(148,163,184,0.3)'
+  const projectedRouteLine = useMemo(() => {
+    if (!activeCoords.length) return []
+    return activeCoords
+      .map(([lon, lat]) => {
+        if (typeof lon !== 'number' || typeof lat !== 'number' || Number.isNaN(lon) || Number.isNaN(lat))
+          return null
+        return project(lon, lat, w, h)
+      })
+      .filter(Boolean)
+  }, [activeCoords, w, h])
+
+  useLayoutEffect(() => {
+    const el = routePolyRef.current
+    if (!el || lineMode !== 'road' || projectedRouteLine.length < 2) return
+    try {
+      const len = el.getTotalLength()
+      if (!len || !Number.isFinite(len)) return
+      el.style.strokeDasharray = `${len}`
+      el.style.strokeDashoffset = `${len}`
+      el.style.transition = 'none'
+      requestAnimationFrame(() => {
+        el.style.transition = 'stroke-dashoffset 2.1s cubic-bezier(0.4, 0, 0.2, 1)'
+        el.style.strokeDashoffset = '0'
+      })
+    } catch {
+      /* ignore */
+    }
+  }, [projectedRouteLine, lineMode, route?.path, selectedVariantId])
+
+  useEffect(() => {
+    setZoom(1)
+    setPan({ x: 0, y: 0 })
+    dragRef.current.active = false
+    setIsDragging(false)
+  }, [route?.path?.join('|')])
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const onWheel = (e) => {
+      e.preventDefault()
+      const step = e.deltaY > 0 ? -0.09 : 0.09
+      setZoom(z => Math.min(2.85, Math.max(0.55, Math.round((z + step) * 1000) / 1000)))
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [])
+
+  function onMapPointerDown(e) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return
+    dragRef.current.active = true
+    dragRef.current.sx = e.clientX
+    dragRef.current.sy = e.clientY
+    dragRef.current.px = pan.x
+    dragRef.current.py = pan.y
+    setIsDragging(true)
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId)
+    } catch {
+      /* ignore */
+    }
   }
-  function edgeWidth(s, t) { return pathSet.has(`${s}|${t}`) ? 2.5 : 1 }
+  function onMapPointerMove(e) {
+    if (!dragRef.current.active) return
+    setPan({
+      x: dragRef.current.px + (e.clientX - dragRef.current.sx),
+      y: dragRef.current.py + (e.clientY - dragRef.current.sy),
+    })
+  }
+  function onMapPointerUp(e) {
+    dragRef.current.active = false
+    setIsDragging(false)
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId)
+    } catch {
+      /* ignore */
+    }
+  }
 
   function nodeColor(id) {
     if (id === params?.origin)      return '#f0f9ff'
@@ -273,40 +492,55 @@ export default function GraphView({ nodes = [], edges = [], route = null, params
       {/* Map Area */}
       <div
         ref={containerRef}
-        className="relative flex-1 w-full rounded-xl overflow-hidden"
+        className="relative flex-1 w-full rounded-xl overflow-hidden bg-slate-950"
         style={{ minHeight: 300 }}
       >
-        {/* Google Earth Engine-style satellite background — ESRI World Imagery covering India */}
-        <img
-          src="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=66%2C6%2C100%2C38&bboxSR=4326&layers=&layerDefs=&size=1000%2C1010&format=jpg&transparent=false&dpi=96&time=&layerTimeOptions=&dynamicLayers=&gdbVersion=&mapScale=&rotation=&datumTransformations=&mapRangeValues=&layerRangeValues=&clipping=&spatialFilter=&f=image"
-          alt="satellite"
-          className="absolute inset-0 w-full h-full object-contain"
-          style={{ filter: 'brightness(0.5) saturate(0.75)', userSelect: 'none', pointerEvents: 'none' }}
-          draggable={false}
-        />
-        {/* Dark overlay for depth */}
+        {/* Zoomable / pannable map stack (image + overlays + graph stay aligned) */}
         <div
-          className="absolute inset-0"
+          ref={mapLayerRef}
+          className="absolute inset-0 select-none touch-none"
           style={{
-            background: 'linear-gradient(135deg, rgba(2,8,23,0.55) 0%, rgba(15,23,42,0.35) 100%)',
+            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+            transformOrigin: '50% 50%',
+            cursor: isDragging ? 'grabbing' : 'grab',
+            zIndex: 1,
           }}
-        />
-
-        {/* Satellite-style grid lines */}
-        <svg
-          className="absolute inset-0 w-full h-full pointer-events-none"
-          style={{ opacity: 0.07 }}
+          onPointerDown={onMapPointerDown}
+          onPointerMove={onMapPointerMove}
+          onPointerUp={onMapPointerUp}
+          onPointerCancel={onMapPointerUp}
         >
-          {[...Array(8)].map((_, i) => (
-            <line key={`v${i}`} x1={`${(i + 1) * 12.5}%`} y1="0" x2={`${(i + 1) * 12.5}%`} y2="100%" stroke="#7dd3fc" strokeWidth="0.5" />
-          ))}
-          {[...Array(5)].map((_, i) => (
-            <line key={`h${i}`} x1="0" y1={`${(i + 1) * 16.6}%`} x2="100%" y2={`${(i + 1) * 16.6}%`} stroke="#7dd3fc" strokeWidth="0.5" />
-          ))}
-        </svg>
+          {/* ESRI World Imagery — brighter for readability */}
+          <img
+            src="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=66%2C6%2C100%2C38&bboxSR=4326&layers=&layerDefs=&size=1000%2C1010&format=jpg&transparent=false&dpi=96&time=&layerTimeOptions=&dynamicLayers=&gdbVersion=&mapScale=&rotation=&datumTransformations=&mapRangeValues=&layerRangeValues=&clipping=&spatialFilter=&f=image"
+            alt="satellite"
+            className="absolute inset-0 w-full h-full object-contain pointer-events-none"
+            style={{
+              filter: 'brightness(0.88) contrast(1.06) saturate(0.92)',
+              userSelect: 'none',
+            }}
+            draggable={false}
+          />
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              background: 'linear-gradient(135deg, rgba(2,8,23,0.14) 0%, rgba(15,23,42,0.1) 50%, rgba(2,6,23,0.12) 100%)',
+            }}
+          />
 
-        {/* SVG Network Graph */}
-        <svg className="absolute inset-0 w-full h-full" style={{ zIndex: 2 }}>
+          <svg
+            className="absolute inset-0 w-full h-full pointer-events-none"
+            style={{ opacity: 0.06 }}
+          >
+            {[...Array(8)].map((_, i) => (
+              <line key={`v${i}`} x1={`${(i + 1) * 12.5}%`} y1="0" x2={`${(i + 1) * 12.5}%`} y2="100%" stroke="#bae6fd" strokeWidth="0.5" />
+            ))}
+            {[...Array(5)].map((_, i) => (
+              <line key={`h${i}`} x1="0" y1={`${(i + 1) * 16.6}%`} x2="100%" y2={`${(i + 1) * 16.6}%`} stroke="#bae6fd" strokeWidth="0.5" />
+            ))}
+          </svg>
+
+          <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 2 }}>
           <defs>
             <filter id="glow-yellow">
               <feGaussianBlur stdDeviation="3" result="blur" />
@@ -320,6 +554,15 @@ export default function GraphView({ nodes = [], edges = [], route = null, params
               <feGaussianBlur stdDeviation="2.5" result="blur" />
               <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
             </filter>
+            <filter id="glow-route-line">
+              <feGaussianBlur stdDeviation="2.2" result="blur" />
+              <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+            </filter>
+            <linearGradient id="route-risk-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor={disrupted ? '#fca5a5' : '#34d399'} />
+              <stop offset="50%" stopColor={disrupted ? '#f87171' : '#fbbf24'} />
+              <stop offset="100%" stopColor={disrupted ? '#ef4444' : '#fb923c'} />
+            </linearGradient>
             <marker id="arrowhead" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto">
               <polygon points="0 0, 6 2, 0 4" fill="#fbbf24" opacity="0.8" />
             </marker>
@@ -346,20 +589,26 @@ export default function GraphView({ nodes = [], edges = [], route = null, params
             )
           })}
 
-          {/* Active route path — drawn directly from route.path, direction-safe */}
-          {routeSegments.map((seg, i) => (
-            <line
-              key={`route-${i}`}
-              x1={seg.from.x} y1={seg.from.y}
-              x2={seg.to.x}   y2={seg.to.y}
-              stroke={disrupted ? '#f87171' : '#fbbf24'}
-              strokeWidth={2.5}
+          {/* Active route — continuous road polyline (ORS) or dashed hub-to-hub fallback */}
+          {projectedRouteLine.length >= 2 && (
+            <polyline
+              key={`${(route?.path ?? []).join('|')}#${selectedVariantId}`}
+              ref={routePolyRef}
+              points={projectedRouteLine.map(p => `${p.x},${p.y}`).join(' ')}
+              fill="none"
+              stroke={
+                lineMode === 'road'
+                  ? (selectedVariantId !== 'best' ? '#c4b5fd' : 'url(#route-risk-gradient)')
+                  : '#888888'
+              }
+              strokeWidth={lineMode === 'road' ? 3.4 : 2.2}
+              strokeLinejoin="round"
               strokeLinecap="round"
-              filter={disrupted ? 'url(#glow-red)' : 'url(#glow-yellow)'}
-              markerEnd={disrupted ? 'url(#arrowhead-red)' : 'url(#arrowhead)'}
-              opacity={1}
+              strokeDasharray={lineMode === 'road' ? undefined : '6 6'}
+              filter={lineMode === 'road' ? 'url(#glow-route-line)' : undefined}
+              opacity={0.95}
             />
-          ))}
+          )}
 
           {/* Nodes */}
           {allNodes.map(n => {
@@ -410,6 +659,53 @@ export default function GraphView({ nodes = [], edges = [], route = null, params
             )
           })}
         </svg>
+        </div>
+
+        {/* Zoom controls (fixed screen position; map layer scales underneath) */}
+        <div
+          data-map-control
+          className="absolute left-2 top-1/2 z-20 flex -translate-y-1/2 flex-col gap-1 rounded-lg border border-slate-600/80 bg-slate-900/90 p-1 shadow-lg"
+        >
+          <div
+            className="mb-0.5 rounded px-1.5 py-0.5 text-center text-[8px] font-bold uppercase tracking-wider text-emerald-400"
+            style={{ borderBottom: '1px solid rgba(52,211,153,0.25)' }}
+          >
+            Satellite
+          </div>
+          <button
+            type="button"
+            title="Zoom in"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-slate-200 hover:bg-slate-700"
+            onClick={() => setZoom(z => Math.min(2.85, Math.round((z + 0.2) * 100) / 100))}
+          >
+            <Plus size={16} />
+          </button>
+          <button
+            type="button"
+            title="Zoom out"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-slate-200 hover:bg-slate-700"
+            onClick={() => setZoom(z => Math.max(0.55, Math.round((z - 0.2) * 100) / 100))}
+          >
+            <Minus size={16} />
+          </button>
+          <button
+            type="button"
+            title="Reset zoom & pan"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-700 hover:text-slate-200"
+            onClick={() => {
+              setZoom(1)
+              setPan({ x: 0, y: 0 })
+            }}
+          >
+            <RotateCcw size={14} />
+          </button>
+          <div className="px-1 pb-0.5 text-center font-mono text-[9px] text-slate-500">
+            {Math.round(zoom * 100)}%
+          </div>
+          <div className="max-w-[4.5rem] px-0.5 pb-1 text-center text-[7px] leading-snug text-slate-500">
+            Scroll wheel zoom · drag map to pan
+          </div>
+        </div>
 
         {/* Route info overlay */}
         {route && (
@@ -466,22 +762,66 @@ export default function GraphView({ nodes = [], edges = [], route = null, params
                 <AlertTriangle size={12} className="inline mr-1" /> Rerouted Path ({route.hops} hops)
               </div>
             )}
+
+            {lineMode === 'road' && routeVariants.length > 1 && (
+              <div className="mt-2 space-y-2 border-t border-indigo-500/20 pt-2">
+                <div className="text-slate-400 font-bold tracking-wider uppercase text-[10px]">Driving options</div>
+                <div className="flex flex-wrap gap-1">
+                  {routeVariants.map(v => (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onClick={() => setSelectedVariantId(v.id)}
+                      className={`rounded-md px-2 py-1 text-[10px] font-semibold transition-colors ${
+                        selectedVariantId === v.id
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                      }`}
+                    >
+                      {v.label}
+                    </button>
+                  ))}
+                </div>
+                {selectedVariant && bestVariant && (
+                  <div className="rounded-md bg-slate-900/80 p-2 text-[10px] leading-relaxed text-slate-300">
+                    {selectedVariant.duration_sec > 0 && (
+                      <div className="mb-1 font-mono text-slate-400">
+                        ~{Math.round(selectedVariant.duration_sec / 60)} min drive ·{' '}
+                        {(selectedVariant.distance_m / 1000).toFixed(1)} km
+                      </div>
+                    )}
+                    {buildVariantExplanation(selectedVariant, bestVariant)}
+                  </div>
+                )}
+              </div>
+            )}
           </motion.div>
         )}
 
-        {/* Earth Engine badge */}
-        <div
-          className="absolute top-2 right-2 text-[10px] font-bold px-2 py-0.5 rounded-full"
-          style={{
-            background: 'rgba(2,8,23,0.75)',
-            border: '1px solid rgba(74,222,128,0.3)',
-            color: '#4ade80',
-            zIndex: 10,
-            letterSpacing: '0.05em',
-          }}
-        >
-          ● SATELLITE
-        </div>
+        {lineMode === 'fallback' && lineMessage && route?.path?.length >= 2 && (
+          <div
+            className="absolute bottom-2 left-14 right-2 sm:right-auto max-w-md text-[10px] font-semibold px-2.5 py-1.5 rounded-lg z-10"
+            style={{
+              background: 'rgba(2,8,23,0.88)',
+              border: '1px solid rgba(251,191,36,0.35)',
+              color: '#fde68a',
+            }}
+          >
+            {lineMessage}
+          </div>
+        )}
+        {lineMode === 'road' && (
+          <div
+            className="absolute bottom-2 left-14 text-[9px] font-bold px-2 py-0.5 rounded z-10 uppercase tracking-wider"
+            style={{
+              background: 'rgba(2,8,23,0.75)',
+              border: '1px solid rgba(45,212,191,0.35)',
+              color: '#5eead4',
+            }}
+          >
+            Road routing · OpenRouteService
+          </div>
+        )}
       </div>
     </div>
   )
