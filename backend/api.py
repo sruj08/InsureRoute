@@ -39,6 +39,12 @@ try:
 except ImportError:
     NEWS_SERVICE_AVAILABLE = False
 
+try:
+    from route_risk_advisor import get_route_risk_analysis
+    ROUTE_RISK_ADVISOR_AVAILABLE = True
+except ImportError:
+    ROUTE_RISK_ADVISOR_AVAILABLE = False
+
 logger = logging.getLogger("insure_route.api")
 
 # ── App ────────────────────────────────────────────────────────────────────────
@@ -364,15 +370,125 @@ def ai_advisor(
 
 
 @app.get("/route-news")
-def route_news():
-    """Generate an AI intelligence brief based on live weather data."""
+def route_news(
+    origin:      str   = Query("Pune_Hub"),
+    destination: str   = Query("Mumbai_Hub"),
+    cargo_value: float = Query(70000),
+    monsoon:     bool  = Query(True),
+    perishable:  bool  = Query(True),
+    anomaly_threshold: float = Query(-0.15),
+):
+    """Generate a route-specific AI intelligence brief using Gemini."""
     if not NEWS_SERVICE_AVAILABLE:
         return {
             "available": False,
             "briefs": ["News service module not installed."],
             "cached": False,
+            "route": f"{origin} → {destination}",
         }
 
-    weather = live_weather_state
-    return get_route_news(weather)
+    weather           = live_weather_state
+    weather_triggered = weather.get("is_dangerous", False)
+
+    # Run a quick tick to get the risk score for this specific route
+    tick = run_tick(
+        origin=origin,
+        destination=destination,
+        cargo_value=cargo_value,
+        monsoon=monsoon,
+        perishable=perishable,
+        inject_disruption=weather_triggered,
+        anomaly_threshold=anomaly_threshold,
+    )
+
+    route_info  = tick.get("route", {})
+    path_names  = route_info.get("path", [origin, destination])
+    distance_km = route_info.get("total_distance_km", (len(path_names) - 1) * 150)
+    travel_hrs  = route_info.get("total_time_hrs", round(distance_km / 60, 1))
+
+    context = {
+        "origin":           origin,
+        "destination":      destination,
+        "path_names":       path_names,
+        "live_checkpoints": weather.get("checkpoints", []),
+        "distance_km":      distance_km,
+        "travel_hrs":       travel_hrs,
+        "risk_pct":         round(tick["disruption_probability"] * 100, 1),
+        "anomaly_score":    tick["anomaly_score"],
+        "monsoon":          monsoon,
+        "perishable":       perishable,
+        "is_disrupted":     tick["disruption_detected"] or weather_triggered,
+    }
+
+    return get_route_news(context)
+
+
+@app.get("/route-risk-analysis")
+def route_risk_analysis(
+    origin:      str   = Query("Pune_Hub"),
+    destination: str   = Query("Mumbai_Hub"),
+    path:        str   = Query(""),        # JSON-encoded list of node IDs
+    cargo_value: float = Query(70000),
+    monsoon:     bool  = Query(True),
+    perishable:  bool  = Query(True),
+    anomaly_threshold: float = Query(-0.15),
+):
+    """
+    Generate a full structured route risk analysis for ANY source→destination.
+    - For Pune-Mumbai: injects live OWM weather checkpoint data.
+    - For all other routes: uses path node IDs with seeded simulation weather.
+    """
+    if not ROUTE_RISK_ADVISOR_AVAILABLE:
+        return {
+            "available": False,
+            "error": "Route risk advisor module not installed.",
+            "overall_status": "Moderate",
+        }
+
+    # Parse path from JSON query param
+    try:
+        import json as _json
+        path_names = _json.loads(path) if path else [origin, destination]
+    except Exception:
+        path_names = [origin, destination]
+
+    # Run a tick to get ML model output
+    weather        = live_weather_state
+    weather_triggered = weather.get("is_dangerous", False)
+
+    tick = run_tick(
+        origin=origin,
+        destination=destination,
+        cargo_value=cargo_value,
+        monsoon=monsoon,
+        perishable=perishable,
+        inject_disruption=weather_triggered,
+        anomaly_threshold=anomaly_threshold,
+    )
+
+    route_info = tick.get("route", {})
+    distance_km = route_info.get("total_distance_km", (len(path_names) - 1) * 150)
+    travel_hrs  = route_info.get("total_time_hrs",    round(distance_km / 60, 1))
+
+    # If path not provided, use the ML engine's computed path
+    if not path_names or path_names == [origin, destination]:
+        engine_path = route_info.get("path", [origin, destination])
+        if engine_path and len(engine_path) >= 2:
+            path_names = engine_path
+
+    context = {
+        "origin":           origin,
+        "destination":      destination,
+        "path_names":       path_names,
+        "live_checkpoints": weather.get("checkpoints", []),
+        "distance_km":      distance_km,
+        "travel_hrs":       travel_hrs,
+        "risk_pct":         round(tick["disruption_probability"] * 100, 1),
+        "anomaly_score":    tick["anomaly_score"],
+        "monsoon":          monsoon,
+        "perishable":       perishable,
+        "is_disrupted":     tick["disruption_detected"] or weather_triggered,
+    }
+
+    return get_route_risk_analysis(context)
 

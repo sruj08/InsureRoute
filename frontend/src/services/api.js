@@ -191,18 +191,72 @@ export async function injectDisruption(params = {}) {
   }
 }
 
-export async function fetchNews() {
+export async function fetchNews(params = {}) {
   try {
-    const res = await client.get('/route-news')
+    const res = await client.get('/route-news', {
+      params: {
+        origin:            params.origin      || 'Pune_Hub',
+        destination:       params.destination || 'Mumbai_Hub',
+        cargo_value:       params.cargoValue  || 70000,
+        monsoon:           params.monsoon     ?? true,
+        perishable:        params.perishable  ?? true,
+        anomaly_threshold: params.threshold   ?? -0.15,
+      },
+      timeout: 40000, // Gemini can take a moment
+    })
     return { data: res.data, mock: false }
   } catch (error) {
+    const orig = (params.origin || 'Pune Hub').replace(/_/g, ' ').replace(' Hub', '')
+    const dest = (params.destination || 'Mumbai Hub').replace(/_/g, ' ').replace(' Hub', '')
     return {
       data: {
         available: false,
-        briefs: ['Intelligence feed offline.'],
+        briefs: [`Intelligence feed offline — ${orig} → ${dest}`],
         cached: false,
+        route: `${orig} → ${dest}`,
       },
-      mock: true
+      mock: true,
+    }
+  }
+}
+
+export async function fetchRiskAnalysis(params = {}, routePath = []) {
+  try {
+    const searchParams = new URLSearchParams({
+      origin:      params.origin      || 'Pune_Hub',
+      destination: params.destination || 'Mumbai_Hub',
+      cargo_value: params.cargoValue  || 70000,
+      monsoon:     params.monsoon     ?? true,
+      perishable:  params.perishable  ?? true,
+      ...(routePath.length > 0 && { path: JSON.stringify(routePath) }),
+    })
+    const res = await client.get(`/route-risk-analysis?${searchParams}`, { timeout: 45000 })
+    return { data: res.data, mock: false }
+  } catch (error) {
+    // Return a fallback mock structure when backend is unavailable
+    const orig = (params.origin      || 'Pune Hub').replace(/_/g, ' ').replace(' Hub', '')
+    const dest = (params.destination || 'Mumbai Hub').replace(/_/g, ' ').replace(' Hub', '')
+    return {
+      data: {
+        available:        true,
+        route_summary:    `- Total Distance: ~${(routePath.length - 1) * 150} km\n- Estimated Travel Time: ~${Math.round((routePath.length - 1) * 2.5)} hours\n- Route Type: Mixed highway`,
+        segments:         routePath.slice(0, -1).map((id, i) => ({
+          name:          id.replace(/_Hub|_DC/g, '').replace(/_/g, ' '),
+          traffic:       'Moderate',
+          weather:       'Clear skies',
+          road_risks:    'Standard highway conditions',
+          safety_rating: 'Low Risk',
+          advice:        'Maintain safe following distance',
+        })),
+        critical_segment: { name: orig, reason: 'Mock mode — backend offline', delay_probability: 'N/A', hazard_type: 'N/A' },
+        recommendations:  `- Best Travel Time: Early morning\n- Speed Advisory: Follow posted speed limits\n- Alternate Route: Contact dispatch for alternatives`,
+        live_status:      `- Overall Route Status: Moderate\n- Quick Decision: Proceed with standard precautions.`,
+        overall_status:   'Moderate',
+        quick_decision:   'Proceed with standard precautions.',
+        model:            'mock-mode',
+        cached:           false,
+      },
+      mock: true,
     }
   }
 }

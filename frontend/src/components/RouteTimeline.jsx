@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
+import { CloudRain, Wind, Thermometer, Droplets, AlertTriangle } from 'lucide-react'
 
 // Default empty checkpoints when weather data isn't loaded yet
 const DEFAULT_CHECKPOINTS = [
@@ -46,23 +47,25 @@ function Tooltip({ cp }) {
       <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-slate-300">
         {cp.rain_1h > 0 && (
           <>
-            <span>🌧 Rain</span>
+            <span className="flex items-center gap-1"><CloudRain size={12} /> Rain</span>
             <span className="text-right font-mono">{cp.rain_1h} mm/hr</span>
           </>
         )}
         {cp.wind_speed > 0 && (
           <>
-            <span>💨 Wind</span>
+            <span className="flex items-center gap-1"><Wind size={12} /> Wind</span>
             <span className="text-right font-mono">{cp.wind_speed} m/s</span>
           </>
         )}
-        <span>🌡 Temp</span>
+        <span className="flex items-center gap-1"><Thermometer size={12} /> Temp</span>
         <span className="text-right font-mono">{cp.temperature}°C</span>
-        <span>💧 Humidity</span>
+        <span className="flex items-center gap-1"><Droplets size={12} /> Humidity</span>
         <span className="text-right font-mono">{cp.humidity}%</span>
       </div>
       {cp.is_dangerous && (
-        <div className="mt-1.5 text-red-400 font-semibold">⚠ Dangerous conditions</div>
+        <div className="mt-1.5 text-red-400 font-semibold flex items-center gap-1">
+          <AlertTriangle size={12} /> Dangerous conditions
+        </div>
       )}
       {/* Arrow */}
       <div

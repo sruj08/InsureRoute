@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion'
 import { useMemo, useEffect, useRef, useState } from 'react'
+import { AlertTriangle } from 'lucide-react'
 
 // ── Node coordinates (real Indian hub lat/lon) ────────────────────────────
 const NODE_MAP = {
@@ -25,15 +26,21 @@ const NODE_MAP = {
   Kochi_Hub:         { lon: 76.2673, lat: 9.9312,  label: 'Kochi'        },
 }
 
-// ── Edges — must match api.js EDGE_PAIRS ──────────────────────────────────
+// ── Edges — background network display only ──────────────────────────────
+// NOTE: These edges are used ONLY for drawing the grey background network.
+// The active route path is drawn separately from route.path directly,
+// so direction mismatches here do NOT affect route highlighting.
 const EDGE_PAIRS = [
   ['Pune_Hub',       'Mumbai_Hub'],
   ['Pune_Hub',       'Nashik_Hub'],
+  ['Pune_Hub',       'Bangalore_Hub'],
+  ['Pune_Hub',       'Hyderabad_Hub'],
   ['Nashik_Hub',     'Mumbai_Hub'],
   ['Nashik_Hub',     'Surat_Hub'],
   ['Surat_Hub',      'Navi_Mumbai_DC'],
   ['Navi_Mumbai_DC', 'Mumbai_Hub'],
   ['Mumbai_Hub',     'Ahmedabad_Hub'],
+  ['Mumbai_Hub',     'Pune_Hub'],
   ['Ahmedabad_Hub',  'Surat_Hub'],
   ['Ahmedabad_Hub',  'Jaipur_Hub'],
   ['Ahmedabad_Hub',  'Indore_Hub'],
@@ -45,23 +52,29 @@ const EDGE_PAIRS = [
   ['Kolkata_Hub',    'Patna_Hub'],
   ['Kolkata_Hub',    'Visakhapatnam_Hub'],
   ['Chennai_Hub',    'Bangalore_Hub'],
+  ['Bangalore_Hub',  'Chennai_Hub'],
   ['Chennai_Hub',    'Visakhapatnam_Hub'],
   ['Bangalore_Hub',  'Hyderabad_Hub'],
+  ['Hyderabad_Hub',  'Bangalore_Hub'],
   ['Bangalore_Hub',  'Kochi_Hub'],
   ['Bangalore_Hub',  'Coimbatore_Hub'],
   ['Hyderabad_Hub',  'Visakhapatnam_Hub'],
   ['Hyderabad_Hub',  'Nagpur_Hub'],
   ['Hyderabad_Hub',  'Chennai_Hub'],
+  ['Hyderabad_Hub',  'Pune_Hub'],
   ['Coimbatore_Hub', 'Chennai_Hub'],
   ['Kochi_Hub',      'Coimbatore_Hub'],
   ['Nagpur_Hub',     'Hyderabad_Hub'],
   ['Nagpur_Hub',     'Bhopal_Hub'],
   ['Nagpur_Hub',     'Kolkata_Hub'],
+  ['Nagpur_Hub',     'Pune_Hub'],
   ['Bhopal_Hub',     'Indore_Hub'],
   ['Indore_Hub',     'Ahmedabad_Hub'],
-  ['Pune_Hub',       'Bangalore_Hub'],
-  ['Pune_Hub',       'Hyderabad_Hub'],
-  ['Mumbai_Hub',     'Pune_Hub'],
+  ['Jaipur_Hub',     'Delhi_Hub'],
+  ['Jaipur_Hub',     'Ahmedabad_Hub'],
+  ['Patna_Hub',      'Kolkata_Hub'],
+  ['Visakhapatnam_Hub', 'Chennai_Hub'],
+  ['Visakhapatnam_Hub', 'Hyderabad_Hub'],
 ]
 
 // ── Map projection helpers (Mercator) ─────────────────────────────────────
@@ -209,8 +222,21 @@ export default function GraphView({ nodes = [], edges = [], route = null, params
     return m
   }, [allNodes, w, h])
 
-  // Use all EDGE_PAIRS (guaranteed consistent)
+  // Use all EDGE_PAIRS for background network only
   const allEdges = useMemo(() => EDGE_PAIRS.map(([s, t]) => ({ source: s, target: t })), [])
+
+  // Build route path segments directly from route.path
+  // This bypasses EDGE_PAIRS entirely for the active route, fixing direction mismatches
+  const routeSegments = useMemo(() => {
+    const path = route?.path ?? []
+    const segments = []
+    for (let i = 0; i < path.length - 1; i++) {
+      const s = projected[path[i]]
+      const t = projected[path[i + 1]]
+      if (s && t) segments.push({ from: s, to: t, fromId: path[i], toId: path[i + 1] })
+    }
+    return segments
+  }, [route, projected])
 
   function edgeColor(s, t) {
     if (pathSet.has(`${s}|${t}`)) return disrupted ? '#f87171' : '#fbbf24'
@@ -302,28 +328,38 @@ export default function GraphView({ nodes = [], edges = [], route = null, params
             </marker>
           </defs>
 
-          {/* Edges */}
+          {/* Background network edges — greyed out, never highlighted */}
           {allEdges.map((e, i) => {
             const s = projected[e.source]
             const t = projected[e.target]
             if (!s || !t) return null
-            const isActive = pathSet.has(`${e.source}|${e.target}`)
-            const color = edgeColor(e.source, e.target)
-            const sw = edgeWidth(e.source, e.target)
             return (
               <line
                 key={i}
                 x1={s.x} y1={s.y}
                 x2={t.x} y2={t.y}
-                stroke={color}
-                strokeWidth={sw}
+                stroke="rgba(148,163,184,0.25)"
+                strokeWidth={0.8}
                 strokeLinecap="round"
-                filter={isActive ? (disrupted ? 'url(#glow-red)' : 'url(#glow-yellow)') : undefined}
-                markerEnd={isActive ? (disrupted ? 'url(#arrowhead-red)' : 'url(#arrowhead)') : undefined}
-                opacity={isActive ? 1 : 0.5}
+                opacity={0.5}
               />
             )
           })}
+
+          {/* Active route path — drawn directly from route.path, direction-safe */}
+          {routeSegments.map((seg, i) => (
+            <line
+              key={`route-${i}`}
+              x1={seg.from.x} y1={seg.from.y}
+              x2={seg.to.x}   y2={seg.to.y}
+              stroke={disrupted ? '#f87171' : '#fbbf24'}
+              strokeWidth={2.5}
+              strokeLinecap="round"
+              filter={disrupted ? 'url(#glow-red)' : 'url(#glow-yellow)'}
+              markerEnd={disrupted ? 'url(#arrowhead-red)' : 'url(#arrowhead)'}
+              opacity={1}
+            />
+          ))}
 
           {/* Nodes */}
           {allNodes.map(n => {
@@ -427,7 +463,7 @@ export default function GraphView({ nodes = [], edges = [], route = null, params
                 className="font-bold flex items-center gap-1 mt-1 px-2 py-1 rounded text-xs"
                 style={{ color: '#f87171', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)' }}
               >
-                ⚠ Rerouted Path ({route.hops} hops)
+                <AlertTriangle size={12} className="inline mr-1" /> Rerouted Path ({route.hops} hops)
               </div>
             )}
           </motion.div>

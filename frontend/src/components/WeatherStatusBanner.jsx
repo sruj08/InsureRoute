@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { CloudRain, AlertTriangle, CheckCircle } from 'lucide-react'
 
 const BASE = 'http://localhost:8000'
 
@@ -65,12 +66,7 @@ export default function WeatherStatusBanner() {
           <div className="px-5 py-4">
             {/* Top row */}
             <div className="flex items-center gap-3 mb-2">
-              <span
-                className="text-2xl"
-                style={{ animation: 'pulse 1.2s ease-in-out infinite' }}
-              >
-                🌧️
-              </span>
+                <CloudRain size={24} className="text-white" />
               <span className="text-white font-bold text-base tracking-wide">
                 LIVE WEATHER DISRUPTION DETECTED
               </span>
@@ -88,7 +84,7 @@ export default function WeatherStatusBanner() {
             {/* Middle row */}
             <div className="flex flex-wrap items-center gap-3 mb-3">
               <div className="flex items-center gap-2 bg-red-950/50 rounded-lg px-3 py-1.5">
-                <span className="text-base">⚠️</span>
+                <AlertTriangle size={16} className="text-amber-200" />
                 <span className="text-amber-200 font-semibold text-sm">
                   {disruption_point}
                   {roleLabel && (
@@ -155,7 +151,7 @@ export default function WeatherStatusBanner() {
           border: '1px solid rgba(74,222,128,0.3)',
         }}
       >
-        <span>✅</span>
+        <CheckCircle size={14} className="text-green-300" />
         <span>
           {isOffline
             ? 'Weather monitor offline — ML mode active'

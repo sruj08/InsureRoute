@@ -113,7 +113,7 @@ export default function Dashboard() {
         addLog('reroute',    `Alternate route via ${(d.route?.path ?? [])[1]?.replace('_', ' ') ?? 'hub'}`, null)
         addLog('savings',    'Hedge cost recalculated after reroute', `₹${(d.insurance?.savings ?? 0).toLocaleString('en-IN')} saved`)
       } else if (src === 'LIVE_WEATHER' && isDisrupted) {
-        addLog('disruption', `🌍 Live weather triggered: ${d.weather_alert ?? 'disruption detected'}`, `Point: ${d.disruption_point ?? '—'}`)
+        addLog('disruption', `Live weather triggered: ${d.weather_alert ?? 'disruption detected'}`, `Point: ${d.disruption_point ?? '—'}`)
         addLog('reroute',    `Auto-rerouting via ${d.alternate_via ?? 'Bhiwandi'} Hub`, null)
         addLog('savings',    'Insurance recalculated — live weather premium', `₹${(d.insurance?.savings ?? 0).toLocaleString('en-IN')} saved`)
       } else if (isDisrupted) {
@@ -192,7 +192,7 @@ export default function Dashboard() {
                 {isLiveWeather ? (
                   <>
                     <span className="text-amber-700 font-bold text-sm">
-                      🌍 LIVE WEATHER DISRUPTION DETECTED
+                      LIVE WEATHER DISRUPTION DETECTED
                     </span>
                     <span className="text-amber-800/80 text-sm ml-2 font-medium">
                       {data?.weather_alert} ·
@@ -214,7 +214,7 @@ export default function Dashboard() {
               <div className="flex items-center gap-2 flex-shrink-0">
                 {isLiveWeather && (
                   <span className="text-xs font-bold text-white bg-green-600 px-2 py-1 rounded-full">
-                    🌍 Real Data
+                    Live Data
                   </span>
                 )}
                 <div
@@ -254,8 +254,13 @@ export default function Dashboard() {
 
         {/* ── AI Insights & Intelligence ── */}
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-5 items-stretch">
-          <AIAdvisorPanel params={params} isMock={isMock} />
-          <NewsPanel />
+          <AIAdvisorPanel
+            params={params}
+            isMock={isMock}
+            routePath={route?.path ?? []}
+            weatherState={weatherState}
+          />
+          <NewsPanel params={params} />
         </div>
 
         {/* ── Bottom row: Trend + Logs ── */}
@@ -324,7 +329,7 @@ export default function Dashboard() {
           InsureRoute SaaS Dashboard · Smart Supply Chain Disruption Detection
           {isMock && <span className="ml-2 text-warning font-semibold">· Mock Mode Active</span>}
           {isLiveWeather && (
-            <span className="ml-2 text-amber-500 font-semibold">· 🌍 Live Weather Mode Active</span>
+            <span className="ml-2 text-amber-500 font-semibold">· Live Weather Mode Active</span>
           )}
         </div>
       </main>
