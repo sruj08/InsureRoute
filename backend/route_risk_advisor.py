@@ -126,7 +126,7 @@ def _build_prompt(context: dict) -> str:
     risk_pct    = context.get("risk_pct", 0)
     anomaly     = context.get("anomaly_score", 0)
     monsoon     = context.get("monsoon", False)
-    perishable  = context.get("perishable", False)
+    cargo_type  = context.get("cargo_type", "Standard")
     is_disrupted = context.get("is_disrupted", False)
     data_source  = context.get("data_source", "simulated")
     path_names   = context.get("path_names", [])
@@ -151,7 +151,7 @@ def _build_prompt(context: dict) -> str:
         f"ML Risk Probability: {risk_pct}%",
         f"Anomaly Score: {anomaly}",
         f"Monsoon Season Active: {monsoon}",
-        f"Cargo Type: {'Perishable' if perishable else 'Standard'}",
+        f"Cargo Type: {cargo_type} (Evaluate risk specifically for this cargo!)",
         f"Disruption Detected: {is_disrupted}",
         f"Weather Data Source: {data_source}",
         "",

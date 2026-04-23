@@ -65,6 +65,7 @@ def run_tick(
     perishable: bool = True,
     inject_disruption: bool = False,
     anomaly_threshold: float = -0.15,
+    cargo_type: str = "Standard",
 ) -> dict:
     """
     Single simulation tick.  Returns a dict consumed by the dashboard.
@@ -107,6 +108,7 @@ def run_tick(
         disruption_probability=disruption_prob,
         monsoon=monsoon,
         perishable=perishable,
+        cargo_type=cargo_type,
     )
 
     return {
@@ -125,6 +127,12 @@ def run_tick(
             "savings_pct": price.savings_pct,
             "weather_multiplier": price.weather_multiplier,
             "perishable_multiplier": price.perishable_multiplier,
+            "cargo_multiplier": price.cargo_multiplier,
+            "temp_multiplier": price.temp_multiplier,
+            "fragility_multiplier": price.fragility_multiplier,
+            "value_density_multiplier": price.value_density_multiplier,
+            "cargo_type": price.cargo_type,
+            "cargo_profile": price.cargo_profile,
         },
         "flags": {
             "monsoon": monsoon,

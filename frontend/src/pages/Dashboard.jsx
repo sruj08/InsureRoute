@@ -54,16 +54,12 @@ export default function Dashboard() {
   const [weatherState, setWeatherState] = useState(null)
 
   const [params, setParams] = useState({
-    origin:      'Pune_Hub',
-    destination: 'Mumbai_Hub',
-    cargoValue:  70000,
+    origin:      '',
+    destination: '',
     monsoon:     true,
     weatherType: 'Monsoon Status',
-    perishable:  true,
-    cargoType:   'Perishable Goods',
+    cargoType:   'Standard',
     threshold:   -0.15,
-    weatherMult: 1.4,
-    perishMult:  1.6,
   })
 
   const addLog = useCallback((type, msg, val) => {
@@ -87,6 +83,12 @@ export default function Dashboard() {
 
   // ── Fetch tick ─────────────────────────────────────────────────────────────
   const fetchTick = useCallback(async (forceInject = false) => {
+    // If no endpoints are selected, clear data and don't fetch
+    if (!params.origin || !params.destination) {
+      setData(null)
+      return
+    }
+
     setLoading(true)
     try {
       const { data: d, mock } = forceInject
@@ -240,8 +242,8 @@ export default function Dashboard() {
           </div>
 
           {/* Center Column (60% Desktop, 70% Tablet) - Map */}
-          <div className="md:col-span-7 lg:col-span-3 md:row-span-2 lg:row-span-1 flex flex-col rounded-xl overflow-hidden h-[450px] md:h-full min-h-0 order-first md:order-none">
-            <GraphView nodes={nodes} edges={edges} route={route} params={params} setParams={setParams} />
+          <div className="md:col-span-7 lg:col-span-3 md:row-span-2 lg:row-span-1 flex flex-col rounded-xl overflow-hidden h-[450px] md:h-full min-h-0 order-first md:order-none relative">
+            <GraphView nodes={nodes} edges={edges} route={route} params={params} setParams={setParams} loading={loading} />
           </div>
 
           {/* Right Column (20% Desktop, 30% Tablet) - Insurance Panel */}

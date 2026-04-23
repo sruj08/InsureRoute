@@ -103,7 +103,7 @@ export function makeMockData(injected = false, params = {}) {
 
   const risk   = injected ? 72 + Math.random() * 20 : 25 + Math.random() * 40
   const prob   = risk / 100
-  const cargo  = params.cargoValue || 70000
+  const cargo  = 1000000
   const before = Math.round(cargo * prob * 0.08 * (injected ? 1.4 : 1.1) * 1.6)
   const after  = Math.round(before * 0.35)
   const savings = Math.round(before - after)
@@ -140,8 +140,14 @@ export function makeMockData(injected = false, params = {}) {
       after_cost:             after,
       savings,
       savings_pct:            savPct,
-      weather_multiplier:     params.weatherMult ?? 1.4,
-      perishable_multiplier:  params.perishMult  ?? 1.6,
+      weather_multiplier:     params.monsoon ? 1.4 : 1.0,
+      perishable_multiplier:  1.0,
+      cargo_multiplier:       1.0,
+      temp_multiplier:        1.0,
+      fragility_multiplier:   1.0,
+      value_density_multiplier: 1.0,
+      cargo_type:             params.cargoType || 'Standard',
+      cargo_profile:          { description: 'Mock mode — backend offline', base_rate: 0.08 },
     },
     route: {
       path,
@@ -168,7 +174,15 @@ export function makeMockData(injected = false, params = {}) {
 // ── API calls ────────────────────────────────────────────────────────────────
 export async function fetchData(params = {}) {
   try {
-    const res = await client.get('/data', { params })
+    const res = await client.get('/data', {
+      params: {
+        origin:            params.origin      || 'Pune_Hub',
+        destination:       params.destination || 'Mumbai_Hub',
+        cargo_type:        params.cargoType   || 'Standard',
+        monsoon:           params.monsoon     ?? true,
+        anomaly_threshold: params.threshold   ?? -0.15,
+      },
+    })
     return { data: res.data, mock: false }
   } catch {
     return { data: makeMockData(false, params), mock: true }
@@ -180,9 +194,8 @@ export async function injectDisruption(params = {}) {
     const res = await client.post('/inject-disruption', {
       origin:            params.origin      || 'Pune_Hub',
       destination:       params.destination || 'Mumbai_Hub',
-      cargo_value:       params.cargoValue  || 70000,
+      cargo_type:        params.cargoType   || 'Standard',
       monsoon:           params.monsoon     ?? true,
-      perishable:        params.perishable  ?? true,
       anomaly_threshold: params.threshold   ?? -0.15,
     })
     return { data: res.data, mock: false }
@@ -197,9 +210,8 @@ export async function fetchNews(params = {}) {
       params: {
         origin:            params.origin      || 'Pune_Hub',
         destination:       params.destination || 'Mumbai_Hub',
-        cargo_value:       params.cargoValue  || 70000,
+        cargo_type:        params.cargoType   || 'Standard',
         monsoon:           params.monsoon     ?? true,
-        perishable:        params.perishable  ?? true,
         anomaly_threshold: params.threshold   ?? -0.15,
       },
       timeout: 40000, // Gemini can take a moment

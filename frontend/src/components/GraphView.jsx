@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useMemo, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Minus, Plus, RotateCcw } from 'lucide-react'
 import { fetchRoadGeometry } from '../services/routeGeometry'
@@ -32,6 +32,17 @@ const NODE_MAP = {
   Belgaum_DC:        { lon: 74.5045, lat: 15.8497, label: 'Belgaum'      },
   Mangalore_DC:      { lon: 74.8560, lat: 12.9141, label: 'Mangalore'    },
 }
+
+const CARGO_OPTIONS = [
+  { id: 'Standard',         label: 'Standard Cargo' },
+  { id: 'Electronics',      label: 'Electronics (Dry)' },
+  { id: 'Pharmaceuticals',  label: 'Pharmaceuticals (Cold)' },
+  { id: 'Perishable Goods', label: 'Perishable Goods' },
+  { id: 'Heavy Machinery',  label: 'Heavy Machinery' },
+  { id: 'Textiles',         label: 'Textiles & Garments' },
+  { id: 'Chemicals',        label: 'Chemicals (Hazmat)' },
+  { id: 'Automotive Parts', label: 'Automotive Parts' },
+]
 
 // ── Edges — background network display only ──────────────────────────────
 // NOTE: These edges are used ONLY for drawing the grey background network.
@@ -87,9 +98,12 @@ const EDGE_PAIRS = [
 // ── Leaflet Controls ────────────────────────────────────────────────────────
 function MapController({ routePath, activeCoords }) {
   const map = useMap()
-  
+  const lastFlownRoute = useRef('')
+
   useEffect(() => {
-    if (activeCoords && activeCoords.length > 0) {
+    const currentSig = routePath?.join('|') || ''
+    if (activeCoords && activeCoords.length > 0 && lastFlownRoute.current !== currentSig) {
+      lastFlownRoute.current = currentSig
       const lats = activeCoords.map(c => c[1])
       const lons = activeCoords.map(c => c[0])
       const bounds = [
@@ -98,7 +112,7 @@ function MapController({ routePath, activeCoords }) {
       ]
       map.flyToBounds(bounds, { duration: 1.5, padding: [20, 20], maxZoom: 12 })
     }
-  }, [routePath?.join('|'), activeCoords])
+  }, [routePath?.join('|'), activeCoords, map])
 
   return null
 }
@@ -197,31 +211,36 @@ function CustomDropdown({ value, options, onChange }) {
     <div className="relative w-full" ref={ref}>
       <button
         onClick={() => setOpen(!open)}
-        className="w-full text-xs rounded px-3 py-2.5 font-semibold outline-none flex justify-between items-center transition-colors shadow-sm"
-        style={{ background: 'rgba(30,41,59,0.95)', border: '1px solid rgba(99,102,241,0.3)', color: '#e2e8f0' }}
+        className="w-full h-9 text-[11px] rounded-lg px-3 flex justify-between items-center transition-all shadow-sm group outline-none"
+        style={{ 
+          background: 'rgba(30, 41, 59, 0.4)', 
+          border: '1px solid rgba(148, 163, 184, 0.2)', 
+          color: '#f1f5f9'
+        }}
       >
-        <span>{selectedOption?.label ?? 'Select...'}</span>
-        <svg width="10" height="6" viewBox="0 0 10 6" fill="none" xmlns="http://www.w3.org/2000/svg" className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`}>
+        <span className="font-semibold text-slate-200 group-hover:text-white transition-colors truncate pr-2">
+          {selectedOption?.label ?? 'Select Terminal...'}
+        </span>
+        <svg width="8" height="6" viewBox="0 0 10 6" fill="none" className={`flex-shrink-0 transition-transform duration-300 ${open ? 'rotate-180 text-indigo-400' : 'text-slate-500'}`}>
           <path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       </button>
 
       {open && (
         <motion.div 
-          initial={{ opacity: 0, y: -5 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="absolute z-50 w-full top-full mt-1.5 py-1 rounded-lg shadow-2xl max-h-56 overflow-y-auto custom-scrollbar"
+          initial={{ opacity: 0, y: -5, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          className="absolute z-[1001] w-full top-full mt-2 py-1.5 rounded-xl shadow-2xl overflow-hidden backdrop-blur-md max-h-48 overflow-y-auto custom-scrollbar"
           style={{ 
-            background: 'rgba(15,23,42,0.98)', 
-            border: '1px solid rgba(99,102,241,0.3)', 
-            backdropFilter: 'blur(12px)' 
+            background: 'rgba(15, 23, 42, 0.85)',
+            border: '1px solid rgba(255, 255, 255, 0.1)', 
           }}
         >
           {options.map(opt => (
             <div
               key={opt.id}
               onClick={() => { onChange(opt.id); setOpen(false) }}
-              className="px-3 py-2 text-xs font-semibold cursor-pointer hover:bg-indigo-500/20 text-slate-200 transition-colors"
+              className="px-3 py-2 text-xs font-medium cursor-pointer hover:bg-indigo-500/20 text-slate-200 transition-colors truncate"
               style={{ background: opt.id === value ? 'rgba(99,102,241,0.15)' : 'transparent' }}
             >
               {opt.label}
@@ -233,7 +252,7 @@ function CustomDropdown({ value, options, onChange }) {
   )
 }
 
-export default function GraphView({ nodes = [], edges = [], route = null, params, setParams }) {
+export default function GraphView({ nodes = [], edges = [], route = null, params, setParams, loading }) {
   // All hubs on the map: API nodes (full graph) + NODE_MAP labels + any id on active route.path
   const allNodes = useMemo(() => {
     const fromApi = new Map(nodes.map(n => [n.id, n]))
@@ -267,7 +286,28 @@ export default function GraphView({ nodes = [], edges = [], route = null, params
   const [selectedVariantId, setSelectedVariantId] = useState('best')
   const [lineMode, setLineMode] = useState('idle') // 'road' | 'fallback' | 'idle'
   const [lineMessage, setLineMessage] = useState(null)
+  const [isRouteMenuExpanded, setIsRouteMenuExpanded] = useState(true) // initially true
   const fetchAbortRef = useRef(null)
+  const prevSelectionRef = useRef({ origin: '', destination: '', cargoType: '' })
+
+  // ── Auto-close dropdown when all 3 fields are filled ───────────────────
+  useEffect(() => {
+    const prev = prevSelectionRef.current
+    const allFilled = params?.origin && params?.destination && params?.cargoType
+    const justCompleted = allFilled && (
+      !prev.origin || !prev.destination || !prev.cargoType ||
+      prev.origin !== params.origin || prev.destination !== params.destination || prev.cargoType !== params.cargoType
+    )
+    prevSelectionRef.current = {
+      origin: params?.origin || '',
+      destination: params?.destination || '',
+      cargoType: params?.cargoType || '',
+    }
+    if (justCompleted && isRouteMenuExpanded) {
+      const t = setTimeout(() => setIsRouteMenuExpanded(false), 800)
+      return () => clearTimeout(t)
+    }
+  }, [params?.origin, params?.destination, params?.cargoType, isRouteMenuExpanded])
 
   const bestVariant = useMemo(
     () => routeVariants.find(v => v.is_best) || routeVariants[0] || null,
@@ -278,8 +318,11 @@ export default function GraphView({ nodes = [], edges = [], route = null, params
     [routeVariants, selectedVariantId, bestVariant],
   )
 
-  const activeCoords = useMemo(() => {
-    const coords = selectedVariant?.coordinates
+  const activeCoords = useMemo(() => selectedVariant?.coordinates ?? [], [selectedVariant])
+
+  const allEdges = useMemo(() => {
+    return EDGE_PAIRS.map(([source, target]) => ({ source, target }))
+  }, [])
   // Fetch road geometry (ORS) whenever the ordered path changes
   useEffect(() => {
     const path = route?.path
@@ -543,98 +586,178 @@ export default function GraphView({ nodes = [], edges = [], route = null, params
           
           <CustomZoomControl />
         </MapContainer>
-      </div>
-
-      {/* Route info overlay */}
-        {route && (
-          <motion.div
-            initial={{ opacity: 0, x: 10 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="absolute top-14 right-3 backdrop-blur-md border shadow-2xl rounded-xl p-4 text-xs space-y-3 w-64"
-            style={{
-              background: 'rgba(2,8,23,0.88)',
-              border: '1px solid rgba(99,102,241,0.35)',
-              zIndex: 10,
-            }}
+        {/* Route info overlay — Bookmark Tab style */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 z-[1000] flex flex-col items-center">
+          {/* Main Tab */}
+          <button 
+             onClick={() => setIsRouteMenuExpanded(!isRouteMenuExpanded)}
+             className="glass-dark px-5 py-2.5 rounded-t-none rounded-b-xl border-t-0 shadow-lg flex items-center gap-3 hover:bg-slate-800/80 transition-colors"
           >
-            {/* Route selectors */}
-            {params && setParams && (
-              <div className="flex flex-col gap-2">
-                <div className="text-slate-400 font-bold tracking-wider uppercase text-[10px]">Select Route</div>
-                <div className="flex flex-col gap-1.5">
-                  <CustomDropdown
-                    value={params.origin}
-                    onChange={val => setParams({ ...params, origin: val })}
-                    options={nodeIds.map(id => ({ id, label: NODE_MAP[id]?.label ?? id.replace('_Hub', '') }))}
-                  />
-                  <div className="text-center text-slate-500 text-[10px] py-0.5">↓</div>
-                  <CustomDropdown
-                    value={params.destination}
-                    onChange={val => setParams({ ...params, destination: val })}
-                    options={nodeIds.map(id => ({ id, label: NODE_MAP[id]?.label ?? id.replace('_Hub', '') }))}
-                  />
-                </div>
-              </div>
-            )}
+             <span className="font-bold text-slate-200 text-xs tracking-wide">
+                {params?.origin?.replace(/_/g, ' ') || 'Start Terminal'} 
+                <span className="text-indigo-400 mx-2">→</span> 
+                {params?.destination?.replace(/_/g, ' ') || 'End Terminal'}
+             </span>
+             {params?.cargoType && params.cargoType !== 'Standard' && (
+               <span className="text-[9px] font-bold text-amber-300 bg-amber-500/20 px-1.5 py-0.5 rounded">
+                 {params.cargoType}
+               </span>
+             )}
+             <svg width="10" height="6" viewBox="0 0 10 6" fill="none" className={`transition-transform duration-300 ${isRouteMenuExpanded ? 'rotate-180 text-indigo-400' : 'text-slate-400'}`}>
+                <path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+             </svg>
+          </button>
 
-            <div className="w-full h-px" style={{ background: 'rgba(99,102,241,0.2)' }} />
+          {/* Expanded Menu */}
+          <AnimatePresence>
+            {isRouteMenuExpanded && (
+               <motion.div
+                 initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                 animate={{ opacity: 1, y: 5, scale: 1 }}
+                 exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                 className="glass-dark p-4 text-xs space-y-4 w-72 mt-2 relative"
+                 style={{
+                   boxShadow: '0 20px 50px rgba(0, 0, 0, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.05)',
+                 }}
+               >
+                 {/* Loading Overlay */}
+                 <AnimatePresence>
+                   {loading && (
+                     <motion.div
+                       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                       className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm z-[1050] flex flex-col items-center justify-center text-center p-4 rounded-[1.5rem]"
+                     >
+                       <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mb-3"></div>
+                       <span className="font-bold text-indigo-300 text-[10px] uppercase tracking-wider mb-1">
+                         Algorithm Running
+                       </span>
+                       <span className="text-slate-400 font-medium text-[9px]">
+                         Finding best route & optimizing value constraints...
+                       </span>
+                     </motion.div>
+                   )}
+                 </AnimatePresence>
 
-            <div className="flex flex-col gap-1">
-              <div className="text-slate-400 font-bold tracking-wider uppercase text-[10px]">Active Route Detail</div>
-              <div className="font-bold text-[13px]" style={{ color: '#e2e8f0' }}>
-                {route.origin?.replace(/_/g, ' ')} → {route.destination?.replace(/_/g, ' ')}
-              </div>
-            </div>
-            <div className="flex gap-3 font-medium" style={{ color: '#94a3b8' }}>
-              <span>Time: {route.total_time_hrs} hrs</span>
-              <span>Dist: {route.total_distance_km} km</span>
-            </div>
-            <div className="font-semibold" style={{ color: '#94a3b8' }}>
-              Cost: ₹{(route.total_cost_inr ?? 0).toLocaleString('en-IN')}
-            </div>
-            {route.rerouted && (
-              <div
-                className="font-bold flex items-center gap-1 mt-1 px-2 py-1 rounded text-xs"
-                style={{ color: '#f87171', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)' }}
-              >
-                <AlertTriangle size={12} className="inline mr-1" /> Rerouted Path ({route.hops} hops)
-              </div>
-            )}
+                 {/* Route selectors (Normal Professional Style) */}
+                 {params && setParams && (
+                   <div className="flex flex-col gap-2 p-1">
+                     <div className="text-slate-400 font-bold tracking-wider uppercase text-[10px] flex justify-between items-center mb-1">
+                       <span>Configure Transit Terminals</span>
+                       <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                     </div>
+                     <div className="flex flex-col gap-2.5 relative">
+                       <CustomDropdown
+                         value={params.origin}
+                         onChange={val => setParams({ ...params, origin: val })}
+                         options={nodeIds.map(id => ({ id, label: NODE_MAP[id]?.label ?? id.replace('_Hub', '') }))}
+                       />
+                       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 pointer-events-none flex items-center justify-center">
+                         <div className="bg-slate-800 p-1.5 rounded-full shadow-inner border border-slate-700/50">
+                           <svg width="8" height="8" viewBox="0 0 10 6" fill="none" className="rotate-0 text-indigo-400">
+                             <path d="M1 1L5 5L9 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                           </svg>
+                         </div>
+                       </div>
+                       <CustomDropdown
+                         value={params.destination}
+                         onChange={val => setParams({ ...params, destination: val })}
+                         options={nodeIds.map(id => ({ id, label: NODE_MAP[id]?.label ?? id.replace('_Hub', '') }))}
+                       />
+                     </div>
+                   </div>
+                 )}
 
-            {lineMode === 'road' && routeVariants.length > 1 && (
-              <div className="mt-2 space-y-2 border-t border-indigo-500/20 pt-2">
-                <div className="text-slate-400 font-bold tracking-wider uppercase text-[10px]">Driving options</div>
-                <div className="flex flex-wrap gap-1">
-                  {routeVariants.map(v => (
-                    <button
-                      key={v.id}
-                      type="button"
-                      onClick={() => setSelectedVariantId(v.id)}
-                      className={`rounded-md px-2 py-1 text-[10px] font-semibold transition-colors ${
-                        selectedVariantId === v.id
-                          ? 'bg-indigo-600 text-white'
-                          : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                      }`}
-                    >
-                      {v.label}
-                    </button>
-                  ))}
-                </div>
-                {selectedVariant && bestVariant && (
-                  <div className="rounded-md bg-slate-900/80 p-2 text-[10px] leading-relaxed text-slate-300">
-                    {selectedVariant.duration_sec > 0 && (
-                      <div className="mb-1 font-mono text-slate-400">
-                        ~{Math.round(selectedVariant.duration_sec / 60)} min drive ·{' '}
-                        {(selectedVariant.distance_m / 1000).toFixed(1)} km
-                      </div>
-                    )}
-                    {buildVariantExplanation(selectedVariant, bestVariant)}
-                  </div>
-                )}
-              </div>
+                 {/* Cargo Configuration */}
+                 {params && setParams && (
+                   <div className="flex flex-col gap-2 p-1">
+                     <div className="text-slate-400 font-bold tracking-wider uppercase text-[10px] flex justify-between items-center mb-1">
+                       <span>Cargo Profile</span>
+                       <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                     </div>
+                     <CustomDropdown
+                       value={params.cargoType}
+                       onChange={val => setParams({ ...params, cargoType: val })}
+                       options={CARGO_OPTIONS}
+                     />
+                     <div className="text-[9px] text-slate-500 font-medium px-1">
+                       {params.cargoType === 'Standard' && 'General transit tracking active.'}
+                       {params.cargoType === 'Electronics' && 'Risk amplified by High Humidity & Rain.'}
+                       {params.cargoType === 'Pharmaceuticals' && 'Strict Temperature & Heat monitoring.'}
+                       {params.cargoType === 'Perishable Goods' && 'Temperature & Delay sensitivity active.'}
+                       {params.cargoType === 'Heavy Machinery' && 'Crosswind & Storm warnings prioritized.'}
+                       {params.cargoType === 'Textiles' && 'Moisture absorption & humidity risk active.'}
+                       {params.cargoType === 'Chemicals' && 'Temperature reaction & spill risk tracking.'}
+                       {params.cargoType === 'Automotive Parts' && 'Corrosion & precision alignment monitoring.'}
+                     </div>
+                   </div>
+                 )}
+
+                 {route && (
+                   <>
+                     <div className="w-full h-px" style={{ background: 'rgba(99,102,241,0.2)' }} />
+
+                     <div className="flex justify-between items-center text-[11px] font-medium text-slate-400">
+                       <span className="flex items-center gap-1">
+                         <span className="w-1 h-1 rounded-full bg-indigo-400" />
+                         {route.total_time_hrs} hrs
+                       </span>
+                       <span className="flex items-center gap-1">
+                         <span className="w-1 h-1 rounded-full bg-indigo-400" />
+                         {route.total_distance_km} km
+                       </span>
+                       <span className="text-emerald-400 font-bold">
+                         ₹{(route.total_cost_inr ?? 0).toLocaleString('en-IN')}
+                       </span>
+                     </div>
+
+                     {route.rerouted && (
+                       <div
+                         className="font-bold flex items-center gap-2 mt-1 px-2.5 py-1.5 rounded-lg text-[10px]"
+                         style={{ color: '#fca5a5', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.2)' }}
+                       >
+                         <AlertTriangle size={12} className="text-red-400" /> 
+                         <span>Disrupted Route ({route.hops} hops)</span>
+                       </div>
+                     )}
+
+                     {lineMode === 'road' && routeVariants.length > 1 && (
+                       <div className="mt-2 space-y-2 border-t border-indigo-500/20 pt-2">
+                         <div className="text-slate-400 font-bold tracking-wider uppercase text-[9px]">Driving topology</div>
+                         <div className="flex flex-wrap gap-1">
+                           {routeVariants.map(v => (
+                             <button
+                               key={v.id}
+                               type="button"
+                               onClick={() => setSelectedVariantId(v.id)}
+                               className={`rounded-md px-2 py-1 text-[9px] font-bold transition-all ${
+                                 selectedVariantId === v.id
+                                   ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20'
+                                   : 'bg-slate-800/80 text-slate-400 hover:bg-slate-700 hover:text-slate-200'
+                               }`}
+                             >
+                               {v.label}
+                             </button>
+                           ))}
+                         </div>
+                         {selectedVariant && bestVariant && (
+                           <div className="rounded-lg bg-slate-900/60 p-2 text-[10px] leading-relaxed text-slate-300 border border-slate-700/30">
+                             {selectedVariant.duration_sec > 0 && (
+                               <div className="mb-1 font-mono text-indigo-300/80">
+                                 ~{Math.round(selectedVariant.duration_sec / 60)} min · {(selectedVariant.distance_m / 1000).toFixed(1)} km
+                               </div>
+                             )}
+                             {buildVariantExplanation(selectedVariant, bestVariant)}
+                           </div>
+                         )}
+                       </div>
+                     )}
+                   </>
+                 )}
+               </motion.div>
             )}
-          </motion.div>
-        )}
+          </AnimatePresence>
+        </div>
+      </div>
 
         {lineMode === 'fallback' && lineMessage && route?.path?.length >= 2 && (
           <div
@@ -661,7 +784,6 @@ export default function GraphView({ nodes = [], edges = [], route = null, params
           </div>
         )}
       </div>
-    </div>
   )
 }
 

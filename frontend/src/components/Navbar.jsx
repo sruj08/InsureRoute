@@ -43,11 +43,6 @@ export default function Navbar({ isLive, isMock, disrupted, params, onParamsChan
           <input type="checkbox" checked={params.monsoon} onChange={() => toggle('monsoon')} className="accent-primary" />
           Monsoon
         </label>
-        
-        <label className="flex items-center gap-2 text-xs font-semibold text-text cursor-pointer hover:bg-slate-50 px-2 py-1 rounded border border-transparent hover:border-border transition-all">
-          <input type="checkbox" checked={params.perishable} onChange={() => toggle('perishable')} className="accent-primary" />
-          Perishable
-        </label>
 
         <div className="w-px h-5 bg-border mx-2" />
 
@@ -85,9 +80,6 @@ export default function Navbar({ isLive, isMock, disrupted, params, onParamsChan
               <div className="text-xs font-bold text-muted uppercase tracking-wider mb-2">Advanced Config</div>
               
               <SliderRow label="Threshold" value={params.threshold} min={-0.5} max={0} step={0.01} format={v => v.toFixed(2)} onChange={v => slider('threshold', v)} />
-              <SliderRow label="Weather Mult" value={params.weatherMult} min={1} max={2} step={0.1} format={v => `x${v}`} onChange={v => slider('weatherMult', v)} />
-              <SliderRow label="Perish Mult" value={params.perishMult} min={1} max={2.5} step={0.1} format={v => `x${v}`} onChange={v => slider('perishMult', v)} />
-              <SliderRow label="Cargo Val" value={params.cargoValue} min={10000} max={500000} step={10000} format={v => `₹${v / 1000}k`} onChange={v => slider('cargoValue', +v)} />
             </div>
           )}
         </div>

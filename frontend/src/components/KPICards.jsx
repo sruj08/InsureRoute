@@ -75,12 +75,12 @@ const LEVEL_STYLES = {
 }
 
 export default function KPICards({ kpis }) {
-  if (!kpis) return null
+  const safeKpis = kpis || { sla: 0, delay: 0, risk: 0, savings: 0 }
 
   return (
     <div className="flex flex-col gap-3 md:gap-4 h-full">
       {CARDS.map((card, i) => {
-        const value = kpis[card.key] ?? 0
+        const value = safeKpis[card.key] ?? 0
         const level = card.threshold(value)
         const Icon  = card.icon
         
